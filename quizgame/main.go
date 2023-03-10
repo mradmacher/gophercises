@@ -9,6 +9,7 @@ import (
     "log"
     "os"
     "bytes"
+    "time"
 )
 
 type Problem struct {
@@ -16,14 +17,13 @@ type Problem struct {
     Answer string
 }
 
-type Score struct {
-    Correct int
-    Wrong int
-}
-
 type Quiz struct {
     problems []Problem
-    score Score
+    solved int
+}
+
+func (problem *Problem) isSolved(guess string) bool {
+    return guess == problem.Answer
 }
 
 func (quiz *Quiz) loadProblems(source io.Reader) error {
@@ -46,38 +46,38 @@ func (quiz *Quiz) loadProblems(source io.Reader) error {
 }
 
 func (quiz *Quiz) resetScore() {
-    quiz.score = Score{}
+    quiz.solved = 0
 }
 
 func (quiz *Quiz) updateScore(solved bool) {
     if solved {
-        quiz.score.Correct++
-    } else {
-        quiz.score.Wrong++
+        quiz.solved++
     }
 }
 
 func (quiz *Quiz) result() string {
-    return fmt.Sprintf("%v/%v", quiz.score.Correct, quiz.score.Correct + quiz.score.Wrong)
+    return fmt.Sprintf("%v/%v", quiz.solved, len(quiz.problems))
 }
 
-func getGuess(question string) string {
-    fmt.Printf("%v: ", question)
-    var guess string
-    fmt.Scanln(&guess)
-    return guess
-}
+func (quiz *Quiz) run(questionCh, answerCh chan string, quitCh chan bool) {
+    doneCh := make(chan bool)
 
-func printScore(score string) {
-    fmt.Printf("Your score: %s\n", score)
-}
-
-func (problem *Problem) isSolved(guess string) bool {
-    return guess == problem.Answer
+    go func() {
+        for _, problem := range quiz.problems {
+            questionCh <- problem.Question
+            quiz.updateScore(problem.isSolved(<-answerCh))
+        }
+        doneCh <- true
+    }()
+    select {
+        case <-quitCh:
+        case <-doneCh:
+    }
 }
 
 func main() {
     fileName := flag.String("file", "problems.csv", "a CSV file with the quiz in format of 'question,answer'")
+    timeLimit := flag.Int("limit", 10, "time limit in seconds to solve the quiz")
     flag.Parse()
 
     buffer, err := os.ReadFile(*fileName)
@@ -92,9 +92,25 @@ func main() {
         log.Fatal(err)
     }
 
+    questionCh := make(chan string)
+    answerCh := make(chan string)
+    quitCh := make(chan bool)
+
+    go func() {
+        for question := range questionCh {
+            var guess string
+            fmt.Printf("%v: ", question)
+            fmt.Scanln(&guess)
+            answerCh <- guess
+        }
+    }()
+    go func() {
+        <- time.After(time.Duration(*timeLimit) * time.Second)
+        quitCh <- true
+    }()
+
     quiz.resetScore()
-    for _, problem := range quiz.problems {
-        quiz.updateScore(problem.isSolved(getGuess(problem.Question)))
-    }
-    printScore(quiz.result())
+    quiz.run(questionCh, answerCh, quitCh)
+
+    fmt.Printf("\nYour score: %s\n", quiz.result())
 }
