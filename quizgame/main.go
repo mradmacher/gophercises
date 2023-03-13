@@ -19,7 +19,11 @@ type Problem struct {
 
 type Quiz struct {
     problems []Problem
-    solved int
+}
+
+type Score struct {
+    Total int
+    Solved int
 }
 
 func (problem *Problem) isSolved(guess string) bool {
@@ -45,27 +49,16 @@ func (quiz *Quiz) loadProblems(source io.Reader) error {
     return nil
 }
 
-func (quiz *Quiz) resetScore() {
-    quiz.solved = 0
-}
-
-func (quiz *Quiz) updateScore(solved bool) {
-    if solved {
-        quiz.solved++
-    }
-}
-
-func (quiz *Quiz) result() string {
-    return fmt.Sprintf("%v/%v", quiz.solved, len(quiz.problems))
-}
-
-func (quiz *Quiz) run(questionCh, answerCh chan string, quitCh chan bool) {
+func (quiz *Quiz) run(questionCh, answerCh chan string, quitCh chan bool) Score {
     doneCh := make(chan bool)
+    score := Score{Total: len(quiz.problems), Solved: 0}
 
     go func() {
         for _, problem := range quiz.problems {
             questionCh <- problem.Question
-            quiz.updateScore(problem.isSolved(<-answerCh))
+            if problem.isSolved(<-answerCh) {
+                score.Solved++
+            }
         }
         doneCh <- true
     }()
@@ -73,6 +66,7 @@ func (quiz *Quiz) run(questionCh, answerCh chan string, quitCh chan bool) {
         case <-quitCh:
         case <-doneCh:
     }
+    return score
 }
 
 func main() {
@@ -109,8 +103,7 @@ func main() {
         quitCh <- true
     }()
 
-    quiz.resetScore()
-    quiz.run(questionCh, answerCh, quitCh)
+    score := quiz.run(questionCh, answerCh, quitCh)
 
-    fmt.Printf("\nYour score: %s\n", quiz.result())
+    fmt.Printf("\nYour score: %v/%v\n", score.Solved, score.Total)
 }

@@ -18,57 +18,6 @@ func TestProblemIsNotSolvedWithWrongGuess(t *testing.T) {
     assert.Assert(t, !problem.isSolved("wrong"))
 }
 
-func TestScoreIsResetAtTheBeginning(t *testing.T) {
-    quiz := Quiz{}
-
-    assert.Equal(t, 0, quiz.score.Correct)
-    assert.Equal(t, 0, quiz.score.Wrong)
-}
-
-func TestUpdatesScoreWithCorrectGuess(t *testing.T) {
-    quiz := Quiz{}
-    quiz.updateScore(true)
-
-    assert.Equal(t, 1, quiz.score.Correct)
-    assert.Equal(t, 0, quiz.score.Wrong)
-
-    quiz.updateScore(true)
-
-    assert.Equal(t, 2, quiz.score.Correct)
-    assert.Equal(t, 0, quiz.score.Wrong)
-}
-
-func TestUpdatesScoreWithWrongGuess(t *testing.T) {
-    quiz := Quiz{}
-    quiz.updateScore(false)
-
-    assert.Equal(t, 0, quiz.score.Correct)
-    assert.Equal(t, 1, quiz.score.Wrong)
-
-    quiz.updateScore(false)
-
-    assert.Equal(t, 0, quiz.score.Correct)
-    assert.Equal(t, 2, quiz.score.Wrong)
-}
-
-func TestUpdatesScoreWithManyGuesses(t *testing.T) {
-    quiz := Quiz{}
-    quiz.updateScore(false)
-
-    assert.Equal(t, 0, quiz.score.Correct)
-    assert.Equal(t, 1, quiz.score.Wrong)
-
-    quiz.updateScore(true)
-
-    assert.Equal(t, 1, quiz.score.Correct)
-    assert.Equal(t, 1, quiz.score.Wrong)
-
-    quiz.updateScore(true)
-
-    assert.Equal(t, 2, quiz.score.Correct)
-    assert.Equal(t, 1, quiz.score.Wrong)
-}
-
 func TestLoadsProblemsFromReader(t *testing.T) {
     source := "q1,a1\nq2,a2\nq3,a3"
     quiz := Quiz{}
@@ -95,4 +44,60 @@ func TestFailsReadingProblemsFromIncorrectSource(t *testing.T) {
     source = "q1,a1\nq2\nq3,a3"
     err = quiz.loadProblems(strings.NewReader(source))
     assert.ErrorContains(t, err, "wrong number of fields")
+}
+
+func TestRunsQuizProvidingQuestionsAndReceivingAnswers(t *testing.T) {
+    quiz := Quiz{}
+    source := "q1,a1\nq2,a2\nq3,a3"
+    quiz.loadProblems(strings.NewReader(source))
+    questionCh := make(chan string)
+    answerCh := make(chan string)
+    quitCh := make(chan bool)
+    scoreCh := make(chan Score)
+
+    var question string
+    go func() {
+        scoreCh <- quiz.run(questionCh, answerCh, quitCh)
+    }()
+
+    question = <- questionCh
+    assert.Equal(t, "q1", question)
+    answerCh <- "a1"
+
+    question = <- questionCh
+    assert.Equal(t, "q2", question)
+    answerCh <- "wrong"
+
+    question = <- questionCh
+    assert.Equal(t, "q3", question)
+    answerCh <- "a3"
+
+    score := <- scoreCh
+
+    assert.Equal(t, 2, score.Solved)
+    assert.Equal(t, 3, score.Total)
+}
+
+func TestQuizCanBeTimeouted(t *testing.T) {
+    quiz := Quiz{}
+    source := "q1,a1\nq2,a2"
+    quiz.loadProblems(strings.NewReader(source))
+    questionCh := make(chan string)
+    answerCh := make(chan string)
+    quitCh := make(chan bool)
+    scoreCh := make(chan Score)
+
+    go func() {
+        scoreCh <- quiz.run(questionCh, answerCh, quitCh)
+    }()
+
+    <- questionCh
+    answerCh <- "a1"
+    <- questionCh
+
+    quitCh <- true
+    score := <- scoreCh
+
+    assert.Equal(t, 1, score.Solved)
+    assert.Equal(t, 2, score.Total)
 }
