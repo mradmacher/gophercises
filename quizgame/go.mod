@@ -1,4 +1,4 @@
-module gophercises/quizgame
+module github.com/mradmacher/gophercises/quizgame
 
 go 1.20
 
