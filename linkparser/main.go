@@ -1,67 +1,37 @@
 package main
 
 import (
+    "bytes"
     "fmt"
-    "log"
-    "strings"
-    "golang.org/x/net/html"
-    "golang.org/x/net/html/atom"
+    "io"
+    "os"
 )
 
-type Link struct {
-    Href string
-    Text string
-}
-
-func collectHref(n *html.Node) string {
-    for _, a := range n.Attr {
-        if a.Key == "href" { return a.Val }
+func run(args []string, stdout io.Writer) error {
+    if len(args) < 2 {
+        return fmt.Errorf("Missing file name to parse")
     }
-    return ""
-}
+    fileName := args[1]
 
-func collectText(n *html.Node) string {
-    if n == nil { return "" }
-
-    var texts []string
-    if n.Type == html.TextNode {
-        texts = append(texts, n.Data)
-    } else {
-        for c := n.FirstChild; c != nil; c = c.NextSibling {
-            texts = append(texts, collectText(c))
-        }
-
+    buffer, err := os.ReadFile(fileName)
+    if err != nil {
+        return fmt.Errorf("Reading the file: %w", err)
     }
-    return strings.Join(texts, " ")
-}
+    reader := bytes.NewReader(buffer)
 
-func collectLinks(n *html.Node, resultCh chan Link) {
-    if n.Type == html.ElementNode && n.DataAtom == atom.A {
-        resultCh <- Link{collectHref(n), collectText(n)}
-    } else {
-        for c := n.FirstChild; c != nil; c = c.NextSibling {
-            collectLinks(c, resultCh)
-        }
+    result, err := CollectLinks(reader)
+    if err != nil {
+        return fmt.Errorf("Collecting links: %w", err)
     }
-}
-
-func reportLinks(doc *html.Node) chan Link {
-    resultCh := make(chan Link)
-    go func() {
-        collectLinks(doc, resultCh)
-        close(resultCh)
-    }()
-    return resultCh
+    for _, link := range result {
+        fmt.Fprintf(stdout, "%v => %v\n", link.Href, link.Text)
+    }
+    return nil
 }
 
 func main() {
-    s := `<p>Links:</p><ul><li><a href="foo">Foo</a><li><a href="/bar/baz">xyz</a></ul><a href="text"><span>Test<i>cur</i></span><span>Dupa</span></a>`
-    doc, err := html.Parse(strings.NewReader(s))
-    if err != nil {
-        log.Fatal(err)
-    }
-    resultCh := reportLinks(doc)
-    for link := range resultCh {
-        fmt.Printf("%v => %v\n", link.Href, link.Text)
+    if err := run(os.Args, os.Stdout); err != nil {
+        fmt.Fprintf(os.Stderr, "%s\n", err)
+        os.Exit(1)
     }
 }
